@@ -98,13 +98,13 @@ dept_data <- data %>%
         values_from = sales
     ) %>% 
     ungroup() %>% 
-    select(- wm_yr_wk) 
+    select(- date) 
 
-weekday_corr_mat <- weekday_data %>% 
+dept_corr_mat <- dept_data %>% 
     as.data.frame() %>% 
     cor(use = "pairwise.complete.obs")
 
-weekday_corr_mat %>% 
+dept_corr_mat %>% 
     ggcorrplot(
         legend.title = "", 
         outline.color = "white"
@@ -113,5 +113,5 @@ weekday_corr_mat %>%
         plot.title = element_text(hjust = 0.5)
     ) +
     labs(
-        title = "Correlation by Weekday"
+        title = "Correlation by Department"
     )
