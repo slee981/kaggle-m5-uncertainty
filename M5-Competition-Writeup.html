@@ -11,7 +11,7 @@
 
 <meta name="author" content="Stephen Lee" />
 
-<meta name="date" content="2020-04-05" />
+<meta name="date" content="2020-04-06" />
 
 <title>M5 Forecasting Uncertainty</title>
 
@@ -365,7 +365,7 @@ summary {
 
 <h1 class="title toc-ignore">M5 Forecasting Uncertainty</h1>
 <h4 class="author">Stephen Lee</h4>
-<h4 class="date">April 05, 2020</h4>
+<h4 class="date">April 06, 2020</h4>
 
 </div>
 
@@ -382,7 +382,8 @@ prices_fname           &lt;- file.path(data_dir, 'sell_prices.csv')
 sample_fname           &lt;- file.path(data_dir, 'sample_submission.csv')</code></pre>
 <div id="calendar-data" class="section level3">
 <h3>Calendar Data</h3>
-<pre class="r"><code>calendar_data &lt;- read_csv(calendar_fname)
+<p>The data starts in 2011 and ends in 2016. Similarly, we can see which events are recorded to use in the analysis.</p>
+<pre class="r"><code>calendar_data &lt;- read_csv(calendar_fname) %&gt;% arrange(date)
 head(calendar_data)</code></pre>
 <pre><code>## # A tibble: 6 x 14
 ##   date       wm_yr_wk weekday  wday month  year d     event_name_1
@@ -395,11 +396,28 @@ head(calendar_data)</code></pre>
 ## 6 2011-02-03    11101 Thursd~     6     2  2011 d_6   &lt;NA&gt;        
 ## # ... with 6 more variables: event_type_1 &lt;chr&gt;, event_name_2 &lt;chr&gt;,
 ## #   event_type_2 &lt;chr&gt;, snap_CA &lt;dbl&gt;, snap_TX &lt;dbl&gt;, snap_WI &lt;dbl&gt;</code></pre>
+<pre class="r"><code>tail(calendar_data)</code></pre>
+<pre><code>## # A tibble: 6 x 14
+##   date       wm_yr_wk weekday  wday month  year d     event_name_1
+##   &lt;date&gt;        &lt;dbl&gt; &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt; &lt;chr&gt;       
+## 1 2016-06-14    11620 Tuesday     4     6  2016 d_19~ &lt;NA&gt;        
+## 2 2016-06-15    11620 Wednes~     5     6  2016 d_19~ &lt;NA&gt;        
+## 3 2016-06-16    11620 Thursd~     6     6  2016 d_19~ &lt;NA&gt;        
+## 4 2016-06-17    11620 Friday      7     6  2016 d_19~ &lt;NA&gt;        
+## 5 2016-06-18    11621 Saturd~     1     6  2016 d_19~ &lt;NA&gt;        
+## 6 2016-06-19    11621 Sunday      2     6  2016 d_19~ NBAFinalsEnd
+## # ... with 6 more variables: event_type_1 &lt;chr&gt;, event_name_2 &lt;chr&gt;,
+## #   event_type_2 &lt;chr&gt;, snap_CA &lt;dbl&gt;, snap_TX &lt;dbl&gt;, snap_WI &lt;dbl&gt;</code></pre>
+<pre class="r"><code>unique(calendar_data$event_type_1)</code></pre>
+<pre><code>## [1] NA          &quot;Sporting&quot;  &quot;Cultural&quot;  &quot;National&quot;  &quot;Religious&quot;</code></pre>
 </div>
 <div id="sales-data" class="section level3">
 <h3>Sales Data</h3>
+<p>The sales data is in a very wide format with each row acting as it’s own timeseries for a given item at a given store. We can see the dimmensions, head, and a view of the column ID’s.</p>
 <pre class="r"><code>sales_data &lt;- read_csv(sales_validation_fname)
-head(sales_data)</code></pre>
+dim(sales_data)</code></pre>
+<pre><code>## [1] 30490  1919</code></pre>
+<pre class="r"><code>head(sales_data)</code></pre>
 <pre><code>## # A tibble: 6 x 1,919
 ##   id    item_id dept_id cat_id store_id state_id   d_1   d_2   d_3   d_4
 ##   &lt;chr&gt; &lt;chr&gt;   &lt;chr&gt;   &lt;chr&gt;  &lt;chr&gt;    &lt;chr&gt;    &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
@@ -430,9 +448,14 @@ head(sales_data)</code></pre>
 ## #   d_94 &lt;dbl&gt;, d_95 &lt;dbl&gt;, d_96 &lt;dbl&gt;, d_97 &lt;dbl&gt;, d_98 &lt;dbl&gt;,
 ## #   d_99 &lt;dbl&gt;, d_100 &lt;dbl&gt;, d_101 &lt;dbl&gt;, d_102 &lt;dbl&gt;, d_103 &lt;dbl&gt;,
 ## #   d_104 &lt;dbl&gt;, ...</code></pre>
+<pre class="r"><code>head(sales_data$id)</code></pre>
+<pre><code>## [1] &quot;HOBBIES_1_001_CA_1_validation&quot; &quot;HOBBIES_1_002_CA_1_validation&quot;
+## [3] &quot;HOBBIES_1_003_CA_1_validation&quot; &quot;HOBBIES_1_004_CA_1_validation&quot;
+## [5] &quot;HOBBIES_1_005_CA_1_validation&quot; &quot;HOBBIES_1_006_CA_1_validation&quot;</code></pre>
 </div>
 <div id="price-data" class="section level3">
 <h3>Price Data</h3>
+<p>This gives us data on the price of a given item, in a given store, for a given week.</p>
 <pre class="r"><code>prices_data &lt;- read_csv(prices_fname)
 head(prices_data)</code></pre>
 <pre><code>## # A tibble: 6 x 4
@@ -447,6 +470,7 @@ head(prices_data)</code></pre>
 </div>
 <div id="sample-submission" class="section level3">
 <h3>Sample Submission</h3>
+<p>We can see a sample of what is expected from a submission, including a zoom in to the <code>id</code> column to get a better idea of what to submit.</p>
 <pre class="r"><code>sample_data &lt;- read_csv(sample_fname)
 head(sample_data)</code></pre>
 <pre><code>## # A tibble: 6 x 29
@@ -462,23 +486,22 @@ head(sample_data)</code></pre>
 ## #   F16 &lt;dbl&gt;, F17 &lt;dbl&gt;, F18 &lt;dbl&gt;, F19 &lt;dbl&gt;, F20 &lt;dbl&gt;, F21 &lt;dbl&gt;,
 ## #   F22 &lt;dbl&gt;, F23 &lt;dbl&gt;, F24 &lt;dbl&gt;, F25 &lt;dbl&gt;, F26 &lt;dbl&gt;, F27 &lt;dbl&gt;,
 ## #   F28 &lt;dbl&gt;</code></pre>
-<p>We can see a sample of the <code>id</code> column to get a better idea of what to submit.</p>
 <pre class="r"><code>sample(unique(sample_data$id), 10)</code></pre>
-<pre><code>##  [1] &quot;FOODS_3_225_CA_1_0.500_evaluation&quot;    
-##  [2] &quot;HOUSEHOLD_2_197_CA_4_0.165_validation&quot;
-##  [3] &quot;HOUSEHOLD_1_395_X_0.500_validation&quot;   
-##  [4] &quot;HOUSEHOLD_1_168_TX_2_0.250_evaluation&quot;
-##  [5] &quot;FOODS_3_283_CA_1_0.995_evaluation&quot;    
-##  [6] &quot;HOUSEHOLD_2_355_TX_2_0.750_evaluation&quot;
-##  [7] &quot;HOUSEHOLD_1_522_TX_1_0.025_evaluation&quot;
-##  [8] &quot;FOODS_2_069_CA_2_0.500_evaluation&quot;    
-##  [9] &quot;CA_FOODS_1_111_0.165_evaluation&quot;      
-## [10] &quot;FOODS_3_283_CA_3_0.835_evaluation&quot;</code></pre>
+<pre><code>##  [1] &quot;TX_HOUSEHOLD_1_032_0.165_validation&quot;  
+##  [2] &quot;HOBBIES_1_066_TX_3_0.005_evaluation&quot;  
+##  [3] &quot;HOUSEHOLD_2_012_CA_3_0.995_evaluation&quot;
+##  [4] &quot;HOBBIES_1_238_WI_1_0.250_validation&quot;  
+##  [5] &quot;FOODS_3_106_WI_2_0.975_validation&quot;    
+##  [6] &quot;HOUSEHOLD_1_298_TX_2_0.025_validation&quot;
+##  [7] &quot;TX_HOUSEHOLD_2_074_0.995_evaluation&quot;  
+##  [8] &quot;FOODS_3_738_WI_3_0.005_validation&quot;    
+##  [9] &quot;FOODS_3_550_CA_2_0.025_evaluation&quot;    
+## [10] &quot;HOBBIES_1_150_WI_2_0.835_validation&quot;</code></pre>
 </div>
 </div>
 <div id="reshape" class="section level2">
 <h2>Reshape</h2>
-<p>We want to combine the data into something useful. In this case, we want so-called “Tidy” data where each row is an observation and each column is a variable. In this case, we can do the following (but it requires a large-ish computer with at least 16GB of memory).</p>
+<p>We want to combine the data into something useful. In this case, we want so-called “Tidy” data where each row is an observation and each column is a variable. We can do the following (but it requires a large-ish computer with at least 16GB of memory). For brevity, I only keep data after June 2015. This somewhat arbitrary, but seems reasonable for a first pass since 2011 sales may say little about sales in 2016 or 2017 due to changes in consumer preferences, availability, etc.</p>
 <pre class="r"><code># clear space for the reshaped data
 rm(list = c(&quot;calendar_data&quot;, &quot;prices_data&quot;, &quot;sales_data&quot;, &quot;sample_data&quot;))
 
@@ -535,6 +558,19 @@ head(data)</code></pre>
 </div>
 <div id="view-data" class="section level2">
 <h2>View Data</h2>
+<p>Below I will show several view of the data, using several helpful aggregations.</p>
+<div id="timeseries" class="section level3">
+<h3>Timeseries</h3>
+</div>
+<div id="correlation" class="section level3">
+<h3>Correlation</h3>
+</div>
+<div id="histograms" class="section level3">
+<h3>Histograms</h3>
+</div>
+</div>
+<div id="prediction" class="section level2">
+<h2>Prediction</h2>
 </div>
 
 
