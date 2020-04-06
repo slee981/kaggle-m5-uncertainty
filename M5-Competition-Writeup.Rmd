@@ -89,6 +89,9 @@ data <- read_csv(sales_validation_fname) %>%
         read_csv(calendar_fname), 
         by = c('day' = 'd')
     ) %>% 
+    filter(
+        date > as.Date("2015-06-01")
+    ) %>% 
     left_join(
         read_csv(prices_fname), 
         by = c(
@@ -109,7 +112,3 @@ head(data)
 ```
 
 ## View Data
-
-
-
-
