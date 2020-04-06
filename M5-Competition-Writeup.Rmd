@@ -13,16 +13,18 @@ output:
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(ggcorrplot)
 knitr::opts_chunk$set(
     echo = TRUE, 
     message = FALSE, 
     warning = FALSE, 
     fig.align = "center", 
-    fig.pos = "H", 
-    fig.height = 2, 
-    fig.width = 7
+    fig.pos = "H"
 )
 ```
+
+## Overview 
+This Kaggle competition asks us to forecast the distribution of Walmart sales for each item i.e. to predict, for each item in the dataset, a number of sales that correspond to a given quantile.
 
 ## Read Data
 The data comes with four files. Below shows a description of each. 
@@ -86,7 +88,7 @@ sample(unique(sample_data$id), 10)
 ```
 
 ## Reshape 
-We want to combine the data into something useful. In this case, we want so-called "Tidy" data where each row is an observation and each column is a variable. We can do the following (but it requires a large-ish computer with at least 16GB of memory). For brevity, I only keep data after June 2015. This somewhat arbitrary, but seems reasonable for a first pass since 2011 sales may say little about sales in 2016 or 2017 due to changes in consumer preferences, availability, etc. 
+We want to combine the data into something useful. In this case, we want so-called "Tidy" data where each row is an observation and each column is a variable. We can do the following (but it requires a large-ish computer with at least 16GB of memory). For brevity, I only keep data after June 2015. This somewhat arbitrary, but seems reasonable for a first pass since 2011 sales may say little about sales in 2016 due to changes in consumer preferences, availability, etc. 
 
 ```{r reshape-data}
 # clear space for the reshaped data
@@ -120,6 +122,9 @@ data <- read_csv(sales_validation_fname) %>%
             "store_id" = "store_id"
         )
     ) %>% 
+    filter(
+        !is.na(sell_price)
+    ) %>%
     mutate(
         weekday = factor(
             weekday, ordered = TRUE, levels = days_of_week
@@ -132,14 +137,116 @@ head(data)
 ```
 
 ## View Data
-Below I will show several view of the data, using several helpful aggregations. 
+In order to make the problem more tractable, we want to aggregate our exploration into three useful buckets: 
+
+1. by department, 
+2. by day of the week, and 
+3. by store. 
 
 ### Timeseries 
 
 ### Correlation 
 
+#### By Department
+Aggregate the average sales per day for each department, and find the correlation between departments. 
+
+```{r correlation-dept}
+data %>% 
+    group_by(date, dept_id) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    pivot_wider(
+        id_cols = date, 
+        names_from = dept_id, 
+        values_from = sales
+    ) %>% 
+    ungroup() %>% 
+    select(- date) %>%
+    as.data.frame() %>% 
+    cor(use = "pairwise.complete.obs") %>%
+    ggcorrplot(
+        legend.title = "", 
+        outline.color = "white"
+    ) +
+    theme(
+        plot.title = element_text(hjust = 0.5)
+    ) +
+    labs(
+        title = "Correlation by Department"
+    )
+
+```
+
+#### By Weekday
+Aggregate the average sales per week for each weekday, and find the correlation between weekday sales. 
+
+```{r correlation-weekday}
+data %>% 
+    group_by(wm_yr_wk, weekday) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    pivot_wider(
+        id_cols = wm_yr_wk, 
+        names_from = weekday, 
+        values_from = sales
+    ) %>% 
+    ungroup() %>% 
+    select(- wm_yr_wk) %>%
+    as.data.frame() %>% 
+    cor(use = "pairwise.complete.obs") %>%
+    ggcorrplot(
+        legend.title = "", 
+        outline.color = "white"
+    ) +
+    theme(
+        plot.title = element_text(hjust = 0.5)
+    ) +
+    labs(
+        title = "Correlation by Weekday"
+    )
+
+```
+
 ### Histograms 
 
+
+#### By Department 
+
+```{r histogram-dept}
+ndepts <- length(unique(data$dept_id))
+data %>% 
+    group_by(
+        date, dept_id
+    ) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+    geom_density(aes(x = sales, y = ..scaled..)) + 
+    facet_wrap(~ dept_id, ncol = 1, nrow = ndepts) + 
+    theme_minimal()
+
+```
+
+#### By Weekday
+```{r histogram-weekday}
+nweekdays <- length(unique(data$weekday))
+data %>% 
+    group_by(
+        wm_yr_wk, weekday
+    ) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+    geom_density(aes(sales, ..scaled..)) + 
+    facet_wrap(~ weekday, ncol = 1, nrow = nweekdays) + 
+    theme_minimal()
+```
 
 ## Prediction 
 
