@@ -1,0 +1,115 @@
+---
+title: "M5 Forecasting Uncertainty"
+author: "Stephen Lee"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+    html_document: 
+        toc: false
+    bookdown::pdf_document2:
+        number_sections: true
+        keep_tex: true 
+        toc: false
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(
+    echo = TRUE, 
+    message = FALSE, 
+    warning = FALSE, 
+    fig.align = 'center', 
+    fig.pos = 'H', 
+    fig.height = 2, 
+    fig.width = 7
+)
+```
+
+## Read Data
+The data comes with four files. Below shows a description of each. 
+
+```{r read-data}
+base_dir <- getwd()
+data_dir <- file.path(base_dir, 'data')
+
+calendar_fname         <- file.path(data_dir, 'calendar.csv')
+sales_validation_fname <- file.path(data_dir, 'sales_train_validation.csv')
+prices_fname           <- file.path(data_dir, 'sell_prices.csv')
+sample_fname           <- file.path(data_dir, 'sample_submission.csv')
+```
+
+### Calendar Data 
+```{r calendar}
+calendar_data <- read_csv(calendar_fname)
+head(calendar_data)
+```
+
+### Sales Data 
+```{r sales}
+sales_data <- read_csv(sales_validation_fname)
+head(sales_data)
+```
+
+### Price Data
+```{r price}
+prices_data <- read_csv(prices_fname)
+head(prices_data)
+```
+
+### Sample Submission 
+```{r sample}
+sample_data <- read_csv(sample_fname)
+head(sample_data)
+```
+We can see a sample of the `id` column to get a better idea of what to submit. 
+```{r submissions}
+sample(unique(sample_data$id), 10)
+```
+
+## Reshape 
+We want to combine the data into something useful. In this case, we want so-called "Tidy" data where each row is an observation and each column is a variable. In this case, we can do the following (but it requires a large-ish computer with at least 16GB of memory).
+
+```{r reshape-data}
+# clear space for the reshaped data
+rm(list = c("calendar_data", "prices_data", "sales_data", "sample_data"))
+
+# we want to order the days of the week for future 'facet' based plotting 
+days_of_week <- c(
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+)
+
+# because the data is so large, we read the data in without storing the 
+# intermittent steps 
+data <- read_csv(sales_validation_fname) %>% 
+    pivot_longer(
+        cols = -contains('id'), 
+        names_to = 'day', 
+        values_to = 'sales'
+    ) %>% 
+    left_join(
+        read_csv(calendar_fname), 
+        by = c('day' = 'd')
+    ) %>% 
+    left_join(
+        read_csv(prices_fname), 
+        by = c(
+            'wm_yr_wk' = 'wm_yr_wk', 
+            'item_id' = 'item_id', 
+            'store_id' = 'store_id'
+        )
+    ) %>% 
+    mutate(
+        weekday = factor(
+            weekday, ordered = TRUE, levels = days_of_week
+        ), 
+        event_type_1 = replace_na(event_type_1, "None"), 
+        month = as_factor(month)
+    )
+
+head(data)
+```
+
+## View Data
+
+
+
+
