@@ -126,7 +126,7 @@ data <- read_csv(sales_validation_fname) %>%
         !is.na(sell_price)
     ) %>%
     mutate(
-        weekday = factor(
+        weekday_ordered = factor(
             weekday, ordered = TRUE, levels = days_of_week
         ), 
         event_type_1 = replace_na(event_type_1, "None"), 
@@ -144,6 +144,52 @@ In order to make the problem more tractable, we want to aggregate our exploratio
 3. by store. 
 
 ### Timeseries 
+We can see several timeseries of sales aggregated to different buckets. 
+
+#### By Department
+```{r ts-dept}
+data %>% 
+    group_by(date, dept_id) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ggplot(
+        aes(date, sales)
+        ) + 
+        geom_line() + 
+        facet_wrap(~ dept_id, ncol = 1) +
+        theme_void()
+```
+
+#### By Weekday
+```{r ts-weekday}
+data %>% 
+    group_by(date, weekday_ordered) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ggplot(
+        aes(date, sales)
+        ) + 
+        geom_line() + 
+        facet_wrap(~ weekday_ordered, ncol = 1) +
+        theme_void()
+```
+
+#### By Store
+```{r ts-store}
+data %>% 
+    group_by(date, store_id) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ggplot(
+        aes(date, sales)
+        ) + 
+        geom_line() + 
+        facet_wrap(~ store_id, ncol = 1) +
+        theme_void()
+```
 
 ### Correlation 
 
@@ -183,13 +229,13 @@ Aggregate the average sales per week for each weekday, and find the correlation 
 
 ```{r correlation-weekday}
 data %>% 
-    group_by(wm_yr_wk, weekday) %>% 
+    group_by(wm_yr_wk, weekday_ordered) %>% 
     summarise(
         sales = mean(sales)
     ) %>% 
     pivot_wider(
         id_cols = wm_yr_wk, 
-        names_from = weekday, 
+        names_from = weekday_ordered, 
         values_from = sales
     ) %>% 
     ungroup() %>% 
@@ -206,16 +252,43 @@ data %>%
     labs(
         title = "Correlation by Weekday"
     )
+```
 
+#### By Store
+Aggregate the average sales per day for each store, and find the correlation between departments. 
+
+```{r correlation-store}
+data %>% 
+    group_by(date, store_id) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    pivot_wider(
+        id_cols = date, 
+        names_from = store_id, 
+        values_from = sales
+    ) %>% 
+    ungroup() %>% 
+    select(- date) %>%
+    as.data.frame() %>% 
+    cor(use = "pairwise.complete.obs") %>%
+    ggcorrplot(
+        legend.title = "", 
+        outline.color = "white"
+    ) +
+    theme(
+        plot.title = element_text(hjust = 0.5)
+    ) +
+    labs(
+        title = "Correlation by Store"
+    )
 ```
 
 ### Histograms 
 
-
 #### By Department 
 
 ```{r histogram-dept}
-ndepts <- length(unique(data$dept_id))
 data %>% 
     group_by(
         date, dept_id
@@ -225,27 +298,58 @@ data %>%
     ) %>% 
     ungroup() %>% 
     ggplot() + 
-    geom_density(aes(x = sales, y = ..scaled..)) + 
-    facet_wrap(~ dept_id, ncol = 1, nrow = ndepts) + 
-    theme_minimal()
-
+        geom_density(aes(x = sales, y = ..scaled..)) + 
+        facet_wrap(~ dept_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
 ```
 
 #### By Weekday
+
 ```{r histogram-weekday}
-nweekdays <- length(unique(data$weekday))
 data %>% 
     group_by(
-        wm_yr_wk, weekday
+        wm_yr_wk, weekday_ordered
     ) %>% 
     summarise(
         sales = mean(sales)
     ) %>% 
     ungroup() %>% 
     ggplot() + 
-    geom_density(aes(sales, ..scaled..)) + 
-    facet_wrap(~ weekday, ncol = 1, nrow = nweekdays) + 
-    theme_minimal()
+        geom_density(aes(sales, ..scaled..)) + 
+        facet_wrap(~ weekday_ordered, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
+```
+
+#### By Store
+
+```{r histogram-store}
+data %>% 
+    group_by(
+        date, store_id
+    ) %>% 
+    summarise(
+        sales = mean(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+        geom_density(aes(sales, ..scaled..)) + 
+        facet_wrap(~ store_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
 ```
 
 ## Prediction 
