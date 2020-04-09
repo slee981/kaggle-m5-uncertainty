@@ -1,5 +1,6 @@
 ---
 title: "M5 Forecasting Uncertainty"
+subtitle: "A Kaggle Competition"
 author: "Stephen Lee"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output: 
@@ -23,10 +24,28 @@ knitr::opts_chunk$set(
 )
 ```
 
-## Overview 
-This Kaggle competition asks us to forecast the distribution of Walmart sales for each item i.e. to predict, for each item in the dataset, a number of sales that correspond to a given quantile.
+# Overview 
 
-## Read Data
+### Goal 
+This Kaggle competition asks us to forecast the distribution of Walmart sales for each item i.e. to predict, for each item in the dataset, a number of sales that correspond to a given quantile of the item's sales probability distribution.
+
+### Approach 
+An item is denoted at the store level. So we don't want to just forecast the sales probability distribution of, for example, Fuji apples, but for Fuji apples in one particular Wisconsin store on Monday, April 25th, 2017.
+
+At first glance, one option would be to calculate the emperical quantiles of an item's sales. There are at least two shortcomings of this approach: 
+
+1. We don't have enough years worth of data to make a reasonable statement about an item's sales probability distribution using its previous year over year results. For example, we only have 5 years of data, that would give us 5 data points for a given item, at a given store, on a given day of the year. Additionally, this doesn't take into account changes in preferences for the item over time.
+2. If we aggregate, we need to be very careful about deciding what level of aggregation. For example, we want to know if an item's sales are dramatically different month to month, or store to store, or even Sunday to Monday, before making a claim about the distribution with aggregated data. 
+
+Therefore, this analysis will proceed as follows: 
+
+1. Description of the data, including the necessary cleaning and processing. 
+2. Graphical descriptions of the data with various formats and different levels of aggregation. The purpose here is to use this information to make a reasonable assumption about how to aggregate an items historical sales distribution. 
+3. Using a linear model with fixed effects fit to the validation data, I will output point estimates of an item's sales on a given day for the evaluation data. Note here that more sophisticated predictive modeling (e.g. a convolutional neural network) can definitely be substituted in this step as time permits, although I suspect that the gains for the additional computational overhead would be minor as this is an input to the next (and most important) step. 
+4. Make a magical assumption about the item's probability distribution. 
+5. Finally, using the prediction of an item's daily sales above, we use that as the mean of the assumed probability distribution for that item. 
+
+# Data
 The data comes with four files. Below shows a description of each. 
 
 ```{r read-data}
@@ -39,7 +58,7 @@ prices_fname           <- file.path(data_dir, "sell_prices.csv")
 sample_fname           <- file.path(data_dir, "sample_submission.csv")
 ```
 
-### Calendar Data 
+### Calendar
 The data starts in 2011 and ends in 2016. Similarly, we can see which events are recorded to use in the analysis. 
 ```{r calendar}
 calendar_data <- read_csv(calendar_fname) %>% arrange(date)
@@ -54,7 +73,7 @@ tail(calendar_data)
 unique(calendar_data$event_type_1)
 ```
 
-### Sales Data 
+### Sales 
 The sales data is in a very wide format with each row acting as it's own timeseries for a given item at a given store. We can see the dimmensions, head, and a view of the column ID's. 
 ```{r sales}
 sales_data <- read_csv(sales_validation_fname)
@@ -69,14 +88,14 @@ head(sales_data)
 head(sales_data$id)
 ```
 
-### Price Data
+### Price
 This gives us data on the price of a given item, in a given store, for a given week. 
 ```{r price}
 prices_data <- read_csv(prices_fname)
 head(prices_data)
 ```
 
-### Sample Submission 
+### Submission 
 We can see a sample of what is expected from a submission, including a zoom in to the `id` column to get a better idea of what to submit. 
 ```{r sample}
 sample_data <- read_csv(sample_fname)
@@ -87,17 +106,31 @@ head(sample_data)
 sample(unique(sample_data$id), 10)
 ```
 
-## Reshape 
-We want to combine the data into something useful. In this case, we want so-called "Tidy" data where each row is an observation and each column is a variable. We can do the following (but it requires a large-ish computer with at least 16GB of memory). For brevity, I only keep data after June 2015. This somewhat arbitrary, but seems reasonable for a first pass since 2011 sales may say little about sales in 2016 due to changes in consumer preferences, availability, etc. 
+### Combine
+We want to combine the data into something useful. In this case, we want so-called "Tidy" data where each row is an observation and each column is a variable. We can do the following (but it requires a large-ish computer with at least 16GB of memory). For brevity, I only keep data after June 2013. This is arbitrary, but makes my laptop much happier. 
 
 ```{r reshape-data}
 # clear space for the reshaped data
 rm(list = c("calendar_data", "prices_data", "sales_data", "sample_data"))
 
+# cutoff the early data so my computer stays happy, and becauase I'm not 
+# convinced that 2012 sales of whatever really adds much relevant signal 
+# that we don't get from more recent data. 
+start_date <- as.Date("2013-06-01")
+
 # we want to order the days of the week for future 'facet' based plotting 
 days_of_week <- c(
     "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 )
+
+# convert month numbers to readable name 
+month_mapping <- c(
+        "January", "February", "March", "April", "May", "June", "July", "August", 
+        "September", "October", "November", "December"
+    )
+month_int_to_name <- function(month_int, month_mapping) {
+   return(month_mapping[month_int]) 
+}
 
 # because the data is so large, we read the data in without storing the 
 # intermittent steps 
@@ -112,7 +145,7 @@ data <- read_csv(sales_validation_fname) %>%
         by = c("day" = "d")
     ) %>% 
     filter(
-        date > as.Date("2015-06-01")
+        date >= start_date
     ) %>% 
     left_join(
         read_csv(prices_fname), 
@@ -129,78 +162,211 @@ data <- read_csv(sales_validation_fname) %>%
         weekday_ordered = factor(
             weekday, ordered = TRUE, levels = days_of_week
         ), 
+        weekday = as_factor(weekday),
         event_type_1 = replace_na(event_type_1, "None"), 
-        month = as_factor(month)
+        month = factor(
+            sapply(month, month_int_to_name, month_mapping), ordered = TRUE, 
+            levels = month_mapping
+        )
     )
 
 head(data)
 ```
 
-## View Data
-In order to make the problem more tractable, we want to aggregate our exploration into three useful buckets: 
+# Graphs
+Below we see histograms of item level sales differentiated by various (possibly) relevant variables. More aggregate graphs are in the Appendix at the end.
 
-1. by department, 
-2. by day of the week, and 
-3. by store. 
+### Histograms - Daily Sales
+This section gives us some intuition about how these item sales are distributed across various possible aggregators. Certainly, it provides an appreciation for the difficulty in deciding at what level to aggregate item sales. 
 
-### Timeseries 
-We can see several timeseries of sales aggregated to different buckets. 
+#### Item by Weekday (randomly selected)
+
+```{r histogram-item}
+set.seed(271)                                    # set seed for reproducibility
+selected_items <- sample(data$item_id, 7)        # get 5 "random" items 
+data %>% 
+    filter(
+        item_id %in% selected_items
+    ) %>% 
+    group_by(
+        date, item_id, weekday
+    ) %>% 
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ggplot(aes(sales, ..scaled.., color = weekday)) + 
+        geom_density() + 
+        facet_wrap(~ item_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank(), 
+            legend.title = element_blank()
+        )
+```
+
+#### Item by Store 
+
+```{r histogram-item-store}
+data %>% 
+    filter(
+        item_id %in% selected_items
+    ) %>% 
+    group_by(
+        date, item_id, store_id
+    ) %>% 
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ggplot(aes(sales, ..scaled.., color = store_id)) + 
+        geom_density() + 
+        facet_wrap(~ item_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank(), 
+            legend.title = element_blank()
+        )
+```
+
+#### Item by Month 
+
+```{r histogram-item-month}
+data %>% 
+    filter(
+        item_id %in% selected_items
+    ) %>% 
+    group_by(
+        date, item_id, month
+    ) %>% 
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ggplot(aes(sales, ..scaled.., color = month)) + 
+        geom_density() + 
+        facet_wrap(~ item_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank(), 
+            legend.title = element_blank()
+        )
+```
+
+# Prediction 
+[To be filled out]
+
+\newpage
+# Appendix 
+
+### Histograms 
 
 #### By Department
-```{r ts-dept}
+This exercise is largely evidence of the central limit theorem (we shouldn't be too surprised that the histograms look failry normal since they represent the histogram of an aggregated random variable). The key take away here is to think about what type of volume these various departments are experiencing daily.
+
+```{r histogram-dept}
 data %>% 
-    group_by(date, dept_id) %>% 
-    summarise(
-        sales = mean(sales)
+    group_by(
+        date, dept_id
     ) %>% 
-    ggplot(
-        aes(date, sales)
-        ) + 
-        geom_line() + 
-        facet_wrap(~ dept_id, ncol = 1) +
-        theme_void()
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+        geom_density(aes(x = sales, y = ..scaled..)) + 
+        facet_wrap(~ dept_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
 ```
 
 #### By Weekday
-```{r ts-weekday}
+The weekend days (Saturday and Sunday) see the highest volume. Monday through Friday are all vaguely similar in mean and variance. 
+
+```{r histogram-weekday}
 data %>% 
-    group_by(date, weekday_ordered) %>% 
-    summarise(
-        sales = mean(sales)
+    group_by(
+        wm_yr_wk, weekday_ordered
     ) %>% 
-    ggplot(
-        aes(date, sales)
-        ) + 
-        geom_line() + 
-        facet_wrap(~ weekday_ordered, ncol = 1) +
-        theme_void()
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+        geom_density(aes(sales, ..scaled..)) + 
+        facet_wrap(~ weekday_ordered, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
 ```
 
 #### By Store
-```{r ts-store}
+Daily sales by store are quite different, as we would expect. 
+
+```{r histogram-store}
 data %>% 
-    group_by(date, store_id) %>% 
-    summarise(
-        sales = mean(sales)
+    group_by(
+        date, store_id
     ) %>% 
-    ggplot(
-        aes(date, sales)
-        ) + 
-        geom_line() + 
-        facet_wrap(~ store_id, ncol = 1) +
-        theme_void()
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+        geom_density(aes(sales, ..scaled..)) + 
+        facet_wrap(~ store_id, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
 ```
+
+#### By Month
+In aggregate, monthly sales are extremely similar. This is most likely masking some significant differences in what items are being sold i.e. in Wisconsin, you may buy hiking gear in the summer, and approximately the same amount of snow gear in the winter. 
+
+```{r histogram-month}
+data %>% 
+    group_by(
+        date, month
+    ) %>% 
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ungroup() %>% 
+    ggplot() + 
+        geom_density(aes(sales, ..scaled..)) + 
+        facet_wrap(~ month, ncol = 1) + 
+        theme_minimal() + 
+        theme(
+            axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            axis.title.y = element_blank()
+        )
+```
+
 
 ### Correlation 
 
 #### By Department
-Aggregate the average sales per day for each department, and find the correlation between departments. 
+We see high correlation by department with the notable exception of HOBBIES_2.
 
 ```{r correlation-dept}
 data %>% 
     group_by(date, dept_id) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
     ) %>% 
     pivot_wider(
         id_cols = date, 
@@ -225,13 +391,13 @@ data %>%
 ```
 
 #### By Weekday
-Aggregate the average sales per week for each weekday, and find the correlation between weekday sales. 
+The most prominent correlation is Saturday and Sunday sales. Nothing looks negative. 
 
 ```{r correlation-weekday}
 data %>% 
     group_by(wm_yr_wk, weekday_ordered) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
     ) %>% 
     pivot_wider(
         id_cols = wm_yr_wk, 
@@ -255,13 +421,13 @@ data %>%
 ```
 
 #### By Store
-Aggregate the average sales per day for each store, and find the correlation between departments. 
+Stores appear to be highly correlated overall in total daily sales volume, which is interesting, and a bit different than what I would have guessed. Since this is an aggregate though, it still may mask some item level differences e.g. it's way less likely that surf boards would sell well in Wisconsin, whereas they may sell well in a California summer.  
 
 ```{r correlation-store}
 data %>% 
     group_by(date, store_id) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
     ) %>% 
     pivot_wider(
         id_cols = date, 
@@ -284,74 +450,109 @@ data %>%
     )
 ```
 
-### Histograms 
+#### By Month
+We notice some key differences here, notably July and December are relatively uncorrelated in sales volume. July and December appear to be involved in most of the uncorrelated relationships. 
 
-#### By Department 
-
-```{r histogram-dept}
+```{r correlation-month}
 data %>% 
-    group_by(
-        date, dept_id
-    ) %>% 
+    group_by(weekday, month) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
+    ) %>% 
+    pivot_wider(
+        id_cols = weekday, 
+        names_from = month, 
+        values_from = sales
     ) %>% 
     ungroup() %>% 
-    ggplot() + 
-        geom_density(aes(x = sales, y = ..scaled..)) + 
-        facet_wrap(~ dept_id, ncol = 1) + 
+    select(- weekday) %>%
+    as.data.frame() %>% 
+    cor(use = "pairwise.complete.obs") %>%
+    ggcorrplot(
+        legend.title = "", 
+        outline.color = "white"
+    ) +
+    theme(
+        plot.title = element_text(hjust = 0.5)
+    ) +
+    labs(
+        title = "Correlation by Month"
+    )
+```
+
+
+### Timeseries 
+
+#### By Department
+We see that the department FOODS_3 and HOUSEHOLD_1 sales appear more volatile than the other departments. Also, we see a huge dip in every department on the same day: Christmas Day. 
+
+```{r ts-dept}
+data %>% 
+    group_by(date, dept_id) %>% 
+    summarise(
+        sales = sum(sales)
+    ) %>% 
+    ggplot(
+        aes(date, sales, color = dept_id)
+        ) + 
+        geom_line() + 
         theme_minimal() + 
         theme(
             axis.text.y = element_blank(), 
             axis.ticks.y = element_blank(), 
-            axis.title.y = element_blank()
+            axis.title.y = element_blank(),
+            axis.title.x = element_blank(),
+            legend.title = element_blank()
         )
 ```
 
 #### By Weekday
+Not much to see here. Note that the big dips are Christmas day. 
 
-```{r histogram-weekday}
+```{r ts-weekday}
 data %>% 
-    group_by(
-        wm_yr_wk, weekday_ordered
-    ) %>% 
+    group_by(date, weekday_ordered) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
     ) %>% 
-    ungroup() %>% 
-    ggplot() + 
-        geom_density(aes(sales, ..scaled..)) + 
-        facet_wrap(~ weekday_ordered, ncol = 1) + 
+    ggplot(
+        aes(date, sales)
+        ) + 
+        geom_line() + 
+        facet_wrap(~ weekday_ordered, ncol = 1) +
         theme_minimal() + 
         theme(
             axis.text.y = element_blank(), 
             axis.ticks.y = element_blank(), 
-            axis.title.y = element_blank()
+            axis.title.y = element_blank(),
+            axis.title.x = element_blank(),
+            legend.title = element_blank()
         )
 ```
 
 #### By Store
+Stores may show some difference in sales, but nothing stands out too much. We'll revisit store level differences later. 
 
-```{r histogram-store}
+```{r ts-store}
 data %>% 
-    group_by(
-        date, store_id
-    ) %>% 
+    group_by(date, store_id) %>% 
     summarise(
-        sales = mean(sales)
+        sales = sum(sales)
     ) %>% 
-    ungroup() %>% 
-    ggplot() + 
-        geom_density(aes(sales, ..scaled..)) + 
-        facet_wrap(~ store_id, ncol = 1) + 
+    ggplot(
+        aes(date, sales, color = store_id)
+        ) + 
+        geom_line() + 
         theme_minimal() + 
         theme(
             axis.text.y = element_blank(), 
             axis.ticks.y = element_blank(), 
-            axis.title.y = element_blank()
+            axis.title.y = element_blank(),
+            axis.title.x = element_blank(),
+            legend.title = element_blank()
         )
 ```
 
-## Prediction 
+
 
 

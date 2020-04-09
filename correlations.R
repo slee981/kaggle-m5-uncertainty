@@ -4,6 +4,8 @@ library(ggcorrplot)
 base_dir <- dirname(rstudioapi::getSourceEditorContext()$path)
 setwd(base_dir)
 
+source('get_data.R')
+
 ###############################################################################
 # data 
 

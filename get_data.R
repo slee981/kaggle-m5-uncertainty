@@ -7,6 +7,8 @@ get_data <- function() {
     sales_validation_fname <- file.path(data_dir, 'sales_train_validation.csv')
     prices_fname <- file.path(data_dir, 'sell_prices.csv')
     
+    start_date <- as.Date("2013-06-01")
+    
     days_of_week <- c(
         "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
     )
@@ -25,7 +27,7 @@ get_data <- function() {
             by = c('day' = 'd')
         ) %>% 
         filter(
-            date > as.Date("2015-06-01")
+            date >= start_date
         ) %>% 
         left_join(
             read_csv(prices_fname), 
