@@ -26,17 +26,31 @@ calc_cdf <- function(item_sales, graph = FALSE) {
     return(data)
 }
 
-calc_predictions <- function(ecdf_data, nsteps = 1000) {
-    cdf <- ecdf_data$cdf
-    sales <- ecdf_data$sales
-    res <- glm(cdf ~ sales, family = binomial("logit"))
+calc_predictions <- function(ecdf_data, nsteps = 201) {
     
-    x       <- seq(min(sales), max(sales), length = nsteps)
-    cdf_fit <- predict(res, list(sales = x), type = "response")
+    # normalize sales to 0 / 1 make logit prediction
+    max_sales <- max(ecdf_data$sales)
+    
+    cdf <- ecdf_data$cdf
+    sales <- ecdf_data$sales / max_sales
+    res <- glm(sales ~ cdf, family = binomial("logit"))
+    
+    # make zero one predictions 
+    x    <- seq(0, 1, length = nsteps)
+    pred <- predict(res, list(cdf = x), type = "response")
+    
+    # rescale so that the 99th percentile is the max sales
+    # i hate myself for doing this, but manually override the 
+    # 95th+ percentile observations to rescale the tails to max
+    max_pred               <- max(pred) # this is less than one, which we don't want
+    idx                    <- which(x > 0.98)[1]
+    rescaled_pred_95th     <- pred[0: idx] * max_sales 
+    rescaled_pred_99th     <- tail(pred, -idx) * max_sales / max_pred
+    rescaled_pred          <- c(rescaled_pred_95th, rescaled_pred_99th)
     return(
         tibble(
-            quantile = cdf_fit, 
-            sales_prediction = x
+            quantile = x, 
+            sales_prediction = rescaled_pred
         )
     )
 }
@@ -98,13 +112,19 @@ make_sales_prediction <- function(data, item_id, dow, m, graph = FALSE) {
     return (sales_predictions)
 }
 
+
 ###############################################################################
 # create emperical cdf
 
 set.seed(981)
-items   <- sample(data$id, 5) 
+items   <- sample(data$id, 7) 
 day     <- "Sunday"
 month   <- 12
 
+prediction_data <- data %>% make_sales_prediction(items[1], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[2], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[3], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[4], day, month, graph = TRUE)
 prediction_data <- data %>% make_sales_prediction(items[5], day, month, graph = TRUE)
+
 
