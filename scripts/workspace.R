@@ -1,10 +1,8 @@
 library(tidyverse)
 library(ggcorrplot)
 
-base_dir <- dirname(rstudioapi::getSourceEditorContext()$path)
-setwd(base_dir)
-
-source('get_data.R')
+base_dir <- getwd()
+source('scripts/get_data.R')
 
 ###############################################################################
 # data 
@@ -118,8 +116,8 @@ make_sales_prediction <- function(data, item_id, dow, m, graph = FALSE) {
 
 set.seed(981)
 items   <- sample(data$id, 7) 
-day     <- "Sunday"
-month   <- 12
+day     <- "Monday"
+month   <- 7
 
 prediction_data <- data %>% make_sales_prediction(items[1], day, month, graph = TRUE)
 prediction_data <- data %>% make_sales_prediction(items[2], day, month, graph = TRUE)

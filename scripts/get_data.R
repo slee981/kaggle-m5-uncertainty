@@ -1,6 +1,6 @@
 get_data <- function() {
     
-    base_dir <- dirname(rstudioapi::getSourceEditorContext()$path)
+    base_dir <- getwd()
     data_dir <- file.path(base_dir, 'data')
     
     calendar_fname <- file.path(data_dir, 'calendar.csv')

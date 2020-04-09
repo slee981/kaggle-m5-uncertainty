@@ -1,9 +1,7 @@
 library(tidyverse)
 
-base_dir <- dirname(rstudioapi::getSourceEditorContext()$path)
-setwd(base_dir)
-
-source('get_data.R')
+base_dir <- getwd()
+source('scripts/get_data.R')
 
 ###############################################################################
 # data 
