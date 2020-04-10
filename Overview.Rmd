@@ -271,7 +271,7 @@ Based on the similarities and differences in the distributions shown above, as w
    - Q2 are April, May, June 
    - Q3 are July, August, September 
    - Q4 art October, November, December 
-2. Weekdays are groupoed into weekdays and weekends
+2. Weekdays are grouped into weekdays and weekends
    - Weekdays are Monday through Friday 
    - Weekends are Saturday and Sunday 
   
@@ -493,9 +493,9 @@ prediction_data %>% tail(10)
 # Appendix 
 
 ### Histograms 
+This exercise is largely evidence of the central limit theorem (we shouldn't be too surprised that the histograms look failry normal since they represent the histogram of an aggregated random variable). The key take away here is to think about what type of volume changes we see for various possible aggregators.
 
 #### By Department
-This exercise is largely evidence of the central limit theorem (we shouldn't be too surprised that the histograms look failry normal since they represent the histogram of an aggregated random variable). The key take away here is to think about what type of volume these various departments are experiencing daily.
 
 ```{r histogram-dept}
 data %>% 
@@ -518,7 +518,6 @@ data %>%
 ```
 
 #### By Weekday
-The weekend days (Saturday and Sunday) see the highest volume. Monday through Friday are all vaguely similar in mean and variance. 
 
 ```{r histogram-weekday}
 data %>% 
@@ -541,7 +540,6 @@ data %>%
 ```
 
 #### By Store
-Daily sales by store are quite different, as we would expect. 
 
 ```{r histogram-store}
 data %>% 
@@ -564,7 +562,6 @@ data %>%
 ```
 
 #### By Month
-In aggregate, monthly sales are extremely similar. This is most likely masking some significant differences in what items are being sold i.e. in Wisconsin, you may buy hiking gear in the summer, and approximately the same amount of snow gear in the winter. 
 
 ```{r histogram-month}
 data %>% 
@@ -590,7 +587,6 @@ data %>%
 ### Correlation 
 
 #### By Department
-We see high correlation by department with the notable exception of HOBBIES_2.
 
 ```{r correlation-dept}
 data %>% 
@@ -621,7 +617,6 @@ data %>%
 ```
 
 #### By Weekday
-The most prominent correlation is Saturday and Sunday sales. Nothing looks negative. 
 
 ```{r correlation-weekday}
 data %>% 
@@ -651,7 +646,6 @@ data %>%
 ```
 
 #### By Store
-Stores appear to be highly correlated overall in total daily sales volume, which is interesting, and a bit different than what I would have guessed. Since this is an aggregate though, it still may mask some item level differences e.g. it's way less likely that surf boards would sell well in Wisconsin, whereas they may sell well in a California summer.  
 
 ```{r correlation-store}
 data %>% 
@@ -681,7 +675,7 @@ data %>%
 ```
 
 #### By Month
-We notice some key differences here, notably July and December are relatively uncorrelated in sales volume. July and December appear to be involved in most of the uncorrelated relationships. 
+We notice some key differences here, notably July and December are relatively uncorrelated in sales volume. 
 
 ```{r correlation-month}
 data %>% 
@@ -714,7 +708,6 @@ data %>%
 ### Timeseries 
 
 #### By Department
-We see that the department FOODS_3 and HOUSEHOLD_1 sales appear more volatile than the other departments. Also, we see a huge dip in every department on the same day: Christmas Day. 
 
 ```{r ts-dept}
 data %>% 
@@ -737,7 +730,6 @@ data %>%
 ```
 
 #### By Weekday
-Not much to see here. Note that the big dips are Christmas day. 
 
 ```{r ts-weekday}
 data %>% 
@@ -746,10 +738,9 @@ data %>%
         sales = sum(sales)
     ) %>% 
     ggplot(
-        aes(date, sales)
+        aes(date, sales, color = weekday_ordered)
         ) + 
         geom_line() + 
-        facet_wrap(~ weekday_ordered, ncol = 1) +
         theme_minimal() + 
         theme(
             axis.text.y = element_blank(), 
@@ -761,7 +752,6 @@ data %>%
 ```
 
 #### By Store
-Stores may show some difference in sales, but nothing stands out too much. We'll revisit store level differences later. 
 
 ```{r ts-store}
 data %>% 
