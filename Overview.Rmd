@@ -32,18 +32,18 @@ This Kaggle competition asks us to forecast the distribution of Walmart sales fo
 ### Approach 
 An item is denoted at the store level. So we don't want to just forecast the sales probability distribution of, for example, Fuji apples, but for Fuji apples in one particular Wisconsin store on Monday, April 25th, 2017.
 
-At first glance, one option would be to calculate the emperical quantiles of an item's sales. There are at least two shortcomings of this approach: 
+My first pass solution will be to calculate the emperical quantiles of an item's sales. There are a couple considerations using this approach: 
 
-1. We don't have enough years worth of data to make a reasonable statement about an item's sales probability distribution using its previous year over year results. For example, we only have 5 years of data, that would give us 5 data points for a given item, at a given store, on a given day of the year. Additionally, this doesn't take into account changes in preferences for the item over time.
-2. If we aggregate, we need to be very careful about deciding what level of aggregation. For example, we want to know if an item's sales are dramatically different month to month, or store to store, or even Sunday to Monday, before making a claim about the distribution with aggregated data. 
+1. We don't have enough years worth of data to make a reasonable statement about an item's sales probability distribution using its own previous year over year sales. For example, we only have 5 years of data, which would give us 5 data points for a given item, at a given store, on a given day of the year. 
+2. So we must aggregate. However we need to be careful about deciding to what level of aggregation. For example, we want to know if an item's sales are dramatically different month to month, or store to store, or even Sunday to Monday, before making a claim about the distribution with aggregated data. 
 
 Therefore, this analysis will proceed as follows: 
 
-1. Description of the data, including the necessary cleaning and processing. 
-2. Graphical descriptions of the data with various formats and different levels of aggregation. The purpose here is to use this information to make a reasonable assumption about how to aggregate an items historical sales distribution. 
-3. Using a linear model with fixed effects fit to the validation data, I will output point estimates of an item's sales on a given day for the evaluation data. Note here that more sophisticated predictive modeling (e.g. a convolutional neural network) can definitely be substituted in this step as time permits, although I suspect that the gains for the additional computational overhead would be minor as this is an input to the next (and most important) step. 
-4. Make a magical assumption about the item's probability distribution. 
-5. Finally, using the prediction of an item's daily sales above, we use that as the mean of the assumed probability distribution for that item. 
+1. Description of the raw data files, including the necessary cleaning and processing. 
+2. Graphical descriptions of the data with various formats and different levels of aggregation. The purpose here is to use this information to make a reasonable assumption about how to aggregate an items historical sales distribution. Most of the graphs will be left to the Appendix at the end, for brevity.  
+3. Calculate the emperical cummulative distribution function (cdf). 
+4. Fit a logit model to the emperical cdf. 
+5. Use the fitted logit model to make predictions at each relevant quantile. 
 
 # Data
 The data comes with four files. Below shows a description of each. 
@@ -164,7 +164,7 @@ data <- read_csv(sales_validation_fname) %>%
         ), 
         weekday = as_factor(weekday),
         event_type_1 = replace_na(event_type_1, "None"), 
-        month = factor(
+        month_name = factor(
             sapply(month, month_int_to_name, month_mapping), ordered = TRUE, 
             levels = month_mapping
         )
@@ -177,7 +177,7 @@ head(data)
 Below we see histograms of item level sales differentiated by various (possibly) relevant variables. More aggregate graphs are in the Appendix at the end.
 
 ### Histograms - Daily Sales
-This section gives us some intuition about how these item sales are distributed across various possible aggregators. Certainly, it provides an appreciation for the difficulty in deciding at what level to aggregate item sales. 
+This section gives us some intuition about how these item sales are distributed across various possible aggregators. 
 
 #### Item by Weekday (randomly selected)
 
@@ -239,12 +239,12 @@ data %>%
         item_id %in% selected_items
     ) %>% 
     group_by(
-        date, item_id, month
+        date, item_id, month_name
     ) %>% 
     summarise(
         sales = sum(sales)
     ) %>% 
-    ggplot(aes(sales, ..scaled.., color = month)) + 
+    ggplot(aes(sales, ..scaled.., color = month_name)) + 
         geom_density() + 
         facet_wrap(~ item_id, ncol = 1) + 
         theme_minimal() + 
@@ -257,9 +257,239 @@ data %>%
 ```
 
 # Prediction 
-[To be filled out]
+To generate predictions, I do the following: 
 
-\newpage
+1. Calculate the emperical cummulative distribution function for at item at some level of aggregation (in order to have enough data). More on this below. 
+2. Fit a logit model to the cdf. 
+3. Use the fitted model to make predictions for each quantile. 
+
+### Aggregation
+Based on the similarities and differences in the distributions shown above, as well as on the correlations seen in the appendix below, I use the following aggregation buckets: 
+
+1. Months are grouped into quarters
+   - Q1 are January, February, March 
+   - Q2 are April, May, June 
+   - Q3 are July, August, September 
+   - Q4 art October, November, December 
+2. Weekdays are groupoed into weekdays and weekends
+   - Weekdays are Monday through Friday 
+   - Weekends are Saturday and Sunday 
+  
+The following code does this for us: 
+```{r aggregate}
+filter_item_sales <- function(data, item_id, dow, m) {
+    
+    # storage 
+    weekend <- c("Sunday", "Saturday")       # weekday and weekends? 
+    q1      <- 1:3                           # which quarter? 
+    q2      <- 4:6
+    q3      <- 7:9
+    q4      <- 10:12
+    
+    return(data %>%
+        filter(
+            id == !!item_id 
+        ) %>% 
+        filter(
+            if (any(!!dow %in% weekend)) {
+                weekday %in% weekend
+            } else {
+                !weekday %in% weekend
+            }
+        ) %>% 
+        filter(
+            if (any(m %in% q1)) {
+                month %in% q1
+            } else if (any(m %in% q2)) {
+                month %in% q2
+            } else if (any(m %in% q3)) {
+                month %in% q3
+            } else {
+                month %in% q4
+            }
+        ) %>% 
+        select(
+            sales
+        )
+    )
+}
+```
+   
+### Emperical CDF 
+The emperical cummulative distribution function is straightforward to calculate by ordering the realized sales for a given item (aggregated as described above), and normalizing the vector such that the last element is one (1). 
+
+The following function receives the output of the function above and returns the cdf with the corresponding number of sales for that item: 
+```{r ecdf}
+calc_cdf <- function(item_sales) {
+    if (length(item_sales) == 0) {
+        return(
+            tibble(
+                cdf = seq(0, 1, length = 20), 
+                sales = rep(0, length = 20)
+            )
+        )
+    }
+    
+    sales <- sort(item_sales)
+    cdf   <- 1:length(sales) / length(sales)
+    
+    data <- tibble(cdf = cdf, sales = sales)
+    return(data)
+}
+```
+
+### Logit predictions
+Next we fit a logit to the sales and corresponding cdf found above.Ultimately, we want to input a quantile (x) and receive an output for the predicted number of sales at that quantile (y). Several notes about the code:
+
+1. Since the logit is bound by zero (0) and one (1), we have to normalize the sales. 
+2. Fit a logit model of sales on the emperical cdf. 
+3. Make predictions on a quantile of interval 0.05 (0, 0.005, 0.01, ..., 1).
+4. Rescale the predictions back to fit the observed sales data. I do something weird and totally not kosher at the end by forcing the tail of the distribution to catch the maximum observed number of sales. This happens because the logit minimizes the mean squared error, and just isn't always able to actually touch the observed maximum. Since it doesn't make any economic sense to think about the 99th percentile selling only 4.78 items, when maybe last week they actually sold 5, I force the tail of the distribution to stretch. 
+
+
+```{r fit-logit}
+calc_predictions <- function(ecdf_data, nsteps = 201) {
+    
+    # final quantile buckets 
+    x    <- seq(0, 1, length = nsteps)
+    
+    # normalize sales to 0 / 1 make logit prediction
+    max_sales <- max(ecdf_data$sales)
+    if (max_sales == 0) {
+        return(
+            tibble(
+                quantile = x, 
+                sales_prediction = rep(0, nsteps)
+            )
+        )
+    }
+    
+    cdf <- ecdf_data$cdf
+    sales <- ecdf_data$sales / max_sales
+    
+    res <- glm(sales ~ cdf, family = binomial("logit"))
+    
+    # make zero one predictions 
+    pred <- predict(res, list(cdf = x), type = "response")
+    
+    # rescale so that the 99th percentile is the max sales
+    # i hate myself for doing this, but manually override the 
+    # 98th+ percentile observations to rescale the tails to max
+    max_pred               <- max(pred) # this is less than one, which we don't want
+    if (max_pred > 0) {
+        idx                    <- which(x > 0.98)[1]
+        rescaled_pred_95th     <- pred[0: idx] * max_sales 
+        rescaled_pred_99th     <- tail(pred, -idx) * max_sales / max_pred
+        pred                   <- c(rescaled_pred_95th, rescaled_pred_99th)
+    }
+    return(
+        tibble(
+            quantile = x, 
+            sales_prediction = pred
+        )
+    )
+}
+```
+
+### Plot the fit
+I know you must be as curious as I am to see how well this fits the data! 
+```{r plot-fit}
+plot_predictions <- function(observed_data, prediction_data) {
+    cdf     <- observed_data$cdf 
+    sales   <- observed_data$sales
+    cdf_fit <- prediction_data$quantile 
+    x       <- prediction_data$sales_prediction
+    plot(cdf, sales)
+    lines(cdf_fit, x, col = "steelblue", lty = 2)
+}
+```
+
+### Calling function 
+This calling function just acts as a wrapper for the above functions to simplify implementation at scale. 
+
+```{r wrapper}
+make_sales_prediction <- function(data, item_id, dow, m, graph = FALSE) {
+    item_sales <- data %>% filter_item_sales(item_id, dow, m)
+    ecdf_data <- item_sales$sales %>% calc_cdf()
+    sales_predictions <- calc_predictions(ecdf_data)
+    if (graph) {
+        plot_predictions(ecdf_data, sales_predictions)
+    }
+    return (sales_predictions)
+}
+```
+
+# Examples
+We can see out how well this method fits the historic data visually. Note that this part still doesn't tell us about how well my aggregation assumptions were. 
+
+### Weekday differences
+We see how (and if!) the distribution changes for this item comparing a Monday in Q3 to a Monday in Q4.
+```{r example-setup}
+set.seed(981)
+items   <- sample(data$id, 3) 
+
+item    <- 1
+day     <- "Monday"              
+m       <- 7                     # Q3
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, m, graph = TRUE)
+```
+
+```{r example1}
+item    <- 1
+day     <- "Monday"              
+month   <- 12                    # Q4
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+```
+
+### Quarterly differences
+We see how (and if!) the distribution changes for this item comparing a Monday in Q2 to a Sunday in Q2.
+```{r example2}
+item    <- 2
+day     <- "Monday"              # weekday
+month   <- 4                     
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+```
+
+```{r example3}
+item    <- 2
+day     <- "Sunday"              # weekday
+month   <- 4                     
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+```
+
+### All differences
+We see how (and if!) the distribution changes for this item comparing a Monday in Q4 to a Sunday in Q3.
+```{r example4}
+item    <- 3
+day     <- "Monday"              # weekday
+month   <- 12                    # Q4
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+```
+
+```{r example5}
+item    <- 3
+day     <- "Sunday"              # weekend
+month   <- 7                     # Q3
+
+prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+```
+
+### Quantile output 
+We can see what the actual quantile output looks like, too! (for the above item).
+
+```{r head}
+prediction_data %>% head(10)
+```
+
+```{r tail}
+prediction_data %>% tail(10)
+```
+
 # Appendix 
 
 ### Histograms 
@@ -339,7 +569,7 @@ In aggregate, monthly sales are extremely similar. This is most likely masking s
 ```{r histogram-month}
 data %>% 
     group_by(
-        date, month
+        date, month_name
     ) %>% 
     summarise(
         sales = sum(sales)
@@ -347,7 +577,7 @@ data %>%
     ungroup() %>% 
     ggplot() + 
         geom_density(aes(sales, ..scaled..)) + 
-        facet_wrap(~ month, ncol = 1) + 
+        facet_wrap(~ month_name, ncol = 1) + 
         theme_minimal() + 
         theme(
             axis.text.y = element_blank(), 
@@ -455,13 +685,13 @@ We notice some key differences here, notably July and December are relatively un
 
 ```{r correlation-month}
 data %>% 
-    group_by(weekday, month) %>% 
+    group_by(weekday, month_name) %>% 
     summarise(
         sales = sum(sales)
     ) %>% 
     pivot_wider(
         id_cols = weekday, 
-        names_from = month, 
+        names_from = month_name, 
         values_from = sales
     ) %>% 
     ungroup() %>% 

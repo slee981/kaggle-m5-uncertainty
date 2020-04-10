@@ -116,13 +116,9 @@ make_sales_prediction <- function(data, item_id, dow, m, graph = FALSE) {
 
 set.seed(981)
 items   <- sample(data$id, 7) 
-day     <- "Monday"
-month   <- 7
+dow     <- "Monday"
+m       <- 7
 
-prediction_data <- data %>% make_sales_prediction(items[1], day, month, graph = TRUE)
-prediction_data <- data %>% make_sales_prediction(items[2], day, month, graph = TRUE)
-prediction_data <- data %>% make_sales_prediction(items[3], day, month, graph = TRUE)
-prediction_data <- data %>% make_sales_prediction(items[4], day, month, graph = TRUE)
-prediction_data <- data %>% make_sales_prediction(items[5], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[1], dow, m, graph = TRUE)
 
 
