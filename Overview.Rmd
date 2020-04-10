@@ -316,11 +316,23 @@ filter_item_sales <- function(data, item_id, dow, m) {
 ```
    
 ### Emperical CDF 
-The emperical cummulative distribution function is straightforward to calculate by ordering the realized sales for a given item (aggregated as described above), and normalizing the vector such that the last element is one (1). 
+The emperical cummulative distribution function is straightforward to calculate by ordering the realized sales for a given item (aggregated as described above), and normalizing the vector such that the last element is one (1).
 
-The following function receives the output of the function above and returns the cdf with the corresponding number of sales for that item: 
+However, we need to make note of one important consideration: the goal of the competition is to forecast the true distribution of an items sales, but we only have a small(ish) sample of observed data. So if an item's maximum items sold are 10, our emperical CDF will "believe" that there is a zero percent chance of ever selling more than that. Obviously demand and supply shocks do exist that can drive sales beyond their historic values (e.g. hand sanitizer in a quarientine). In other words, we want to build (force) a long tail into a distribution that is otherwise fit on real data. We want a 99.9% event. 
+
+To do this, I will employ the following "black swan" algorithm along side the simple emperical cdf algorithm.  
+
+1. Take the vector of observed sales data and repeat it until it's about 1000 in total length. For porportionality reasons, we don't want to subdivide the vector of sales and disporportionately weight any part of the CDF. Since this part of the analysis is not too rigorous, we'll just get it near 1000 so that the outlier event we add will represent about a 99.9% event. 
+2. Find the max of the sales vector and multiply it by some "black swan multiple". That will be our black swan sales day. 
+3. Append the black swan to the end of the series and calculate the CDF as normal. 
+
+The following function receives the output of the function above and returns the cdf with the corresponding number of sales for that item. 
+
 ```{r ecdf}
-calc_cdf <- function(item_sales) {
+# emperical cdf
+calc_ecdf <- function(item_sales) {
+    
+    # if no sales, return empty cdf
     if (length(item_sales) == 0) {
         return(
             tibble(
@@ -335,6 +347,40 @@ calc_cdf <- function(item_sales) {
     
     data <- tibble(cdf = cdf, sales = sales)
     return(data)
+}
+
+calc_black_swan_cdf <- function(item_sales, black_swan_magnitude = 4, black_swan_length = 1000) {
+    
+    # again, if no sales, return empty cdf
+    if (length(item_sales) == 0) {
+        return(
+            tibble(
+                cdf = seq(0, 1, length = 20), 
+                sales = rep(0, length = 20)
+            )
+        )
+    }
+    
+    # get max sales
+    max_sales <- max(item_sales)
+    if (max_sales == 0) {
+        
+        # if no sales, suppose there's a chance? 
+        black_swan_event <- 1  
+    } else {
+        
+        # if sales, imagine a black swan event 
+        black_swan_event <- black_swan_magnitude * max_sales
+    }
+    
+    # get length of sales data and build "black swan distribution"
+    n_sales <- length(item_sales)
+    n_repeat <- ceiling(black_swan_length / n_sales)
+    black_swan_sales <- c(rep(item_sales, n_repeat), black_swan_event)
+    
+    return(
+        calc_ecdf(black_swan_sales)
+    )
 }
 ```
 
@@ -353,7 +399,9 @@ calc_predictions <- function(ecdf_data, nsteps = 201) {
     # final quantile buckets 
     x    <- seq(0, 1, length = nsteps)
     
-    # normalize sales to 0 / 1 make logit prediction
+    # check max sales
+    # if more than zero, normalize to make zero / one predictions 
+    # if zero, return zeros
     max_sales <- max(ecdf_data$sales)
     if (max_sales == 0) {
         return(
@@ -363,7 +411,6 @@ calc_predictions <- function(ecdf_data, nsteps = 201) {
             )
         )
     }
-    
     cdf <- ecdf_data$cdf
     sales <- ecdf_data$sales / max_sales
     
@@ -372,16 +419,9 @@ calc_predictions <- function(ecdf_data, nsteps = 201) {
     # make zero one predictions 
     pred <- predict(res, list(cdf = x), type = "response")
     
-    # rescale so that the 99th percentile is the max sales
-    # i hate myself for doing this, but manually override the 
-    # 98th+ percentile observations to rescale the tails to max
-    max_pred               <- max(pred) # this is less than one, which we don't want
-    if (max_pred > 0) {
-        idx                    <- which(x > 0.98)[1]
-        rescaled_pred_95th     <- pred[0: idx] * max_sales 
-        rescaled_pred_99th     <- tail(pred, -idx) * max_sales / max_pred
-        pred                   <- c(rescaled_pred_95th, rescaled_pred_99th)
-    }
+    # rescale back to fit sales data 
+    pred <- pred * max_sales
+
     return(
         tibble(
             quantile = x, 
@@ -394,12 +434,12 @@ calc_predictions <- function(ecdf_data, nsteps = 201) {
 ### Plot the fit
 I know you must be as curious as I am to see how well this fits the data! 
 ```{r plot-fit}
-plot_predictions <- function(observed_data, prediction_data) {
+plot_predictions <- function(observed_data, prediction_data, item) {
     cdf     <- observed_data$cdf 
     sales   <- observed_data$sales
     cdf_fit <- prediction_data$quantile 
     x       <- prediction_data$sales_prediction
-    plot(cdf, sales)
+    plot(cdf, sales, main = item)
     lines(cdf_fit, x, col = "steelblue", lty = 2)
 }
 ```
@@ -410,10 +450,15 @@ This calling function just acts as a wrapper for the above functions to simplify
 ```{r wrapper}
 make_sales_prediction <- function(data, item_id, dow, m, graph = FALSE) {
     item_sales <- data %>% filter_item_sales(item_id, dow, m)
-    ecdf_data <- item_sales$sales %>% calc_cdf()
-    sales_predictions <- calc_predictions(ecdf_data)
+    
+    # use realized emperical data for graphing (and sanity)
+    ecdf_data <- item_sales$sales %>% calc_ecdf()
+    
+    # use black swan event cdf to fit data and add a tail 
+    black_swan_data <- item_sales$sales %>% calc_black_swan_cdf() 
+    sales_predictions <- calc_predictions(black_swan_data)
     if (graph) {
-        plot_predictions(ecdf_data, sales_predictions)
+        plot_predictions(ecdf_data, sales_predictions, item_id)
     }
     return (sales_predictions)
 }
@@ -429,54 +474,54 @@ set.seed(981)
 items   <- sample(data$id, 3) 
 
 item    <- 1
-day     <- "Monday"              
+dow     <- "Monday"              
 m       <- 7                     # Q3
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, m, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, m, graph = TRUE)
 ```
 
 ```{r example1}
 item    <- 1
-day     <- "Monday"              
+dow     <- "Monday"              
 month   <- 12                    # Q4
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, month, graph = TRUE)
 ```
 
 ### Quarterly differences
 We see how (and if!) the distribution changes for this item comparing a Monday in Q2 to a Sunday in Q2.
 ```{r example2}
 item    <- 2
-day     <- "Monday"              # weekday
+dow     <- "Monday"              # weekday
 month   <- 4                     
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, month, graph = TRUE)
 ```
 
 ```{r example3}
 item    <- 2
-day     <- "Sunday"              # weekday
+dow     <- "Sunday"              # weekend
 month   <- 4                     
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, month, graph = TRUE)
 ```
 
 ### All differences
 We see how (and if!) the distribution changes for this item comparing a Monday in Q4 to a Sunday in Q3.
 ```{r example4}
 item    <- 3
-day     <- "Monday"              # weekday
+dow     <- "Monday"              # weekday
 month   <- 12                    # Q4
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, month, graph = TRUE)
 ```
 
 ```{r example5}
 item    <- 3
-day     <- "Sunday"              # weekend
+dow     <- "Sunday"              # weekend
 month   <- 7                     # Q3
 
-prediction_data <- data %>% make_sales_prediction(items[item], day, month, graph = TRUE)
+prediction_data <- data %>% make_sales_prediction(items[item], dow, month, graph = TRUE)
 ```
 
 ### Quantile output 
